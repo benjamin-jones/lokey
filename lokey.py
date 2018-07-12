@@ -1,16 +1,22 @@
 #!/usr/bin/python3.5
 
 import logging
-import png
+import matplotlib.pyplot as plt
 import numpy as numpy
+import scipy.misc
 
+from queue import Queue
 from optparse import OptionParser
+from PIL import Image
+from random import randint
 
 _NAME_ = "LoKey"
 _VERSION_ = "0.1"
 
 EXIT_OK = 0
 EXIT_IO_ERROR = -1
+
+messages = Queue()
 
 
 def lokey_cleanup(return_val=0):
@@ -19,23 +25,59 @@ def lokey_cleanup(return_val=0):
 
 
 def get_dimensions(png_object):
-    width, height, planes = png_object[0], png_object[1], png_object[3]['planes']
+    width, height, planes = png_object.size[0], png_object.size[1], 4
 
     return width, height, planes
 
 
+def transform_red(pixel):
+    return pixel
+
+
+def transform_green(pixel):
+    global messages
+    item = messages.get()
+    return item + pixel
+
+
+def transform_blue(pixel):
+    return pixel
+
+
+def generate_mask(width, height):
+    global messages
+    for i in range(0, width*height):
+        noise = randint(0, 128)
+        messages.put(noise)
+
+
 def transform_image(png_object, width, height, planes):
-    pngdata = png_object.asDirect()
 
-    pngdata8bit = [i for i in map(numpy.uint16, pngdata[2])]
-    image_2d = numpy.vstack(pngdata8bit)
-    image_3d = numpy.reshape(image_2d, (height, width, planes))
+    global messages
 
+    arr = numpy.array(png_object)
+    image_4d = numpy.reshape(arr, (height, width, planes))
+
+    image_3d = image_4d[:, :, :-1]
+
+    generate_mask(width, height)
+
+    for i in range(0, height):
+        row = []
+        for pixel in image_3d[i]:
+            pixel[0] = transform_red(pixel[0])
+            pixel[1] = transform_green(pixel[1])
+            pixel[2] = transform_blue(pixel[2])
+            row.append(pixel)
+        image_3d[i] = row
+
+    plt.imshow(image_3d)
+    plt.show()
     return image_3d
 
 
 def print_metadata(png_object):
-    logging.info("IMG WIDTH: %d HEIGHT: %d", png_object[0], png_object[1])
+    logging.info("IMG WIDTH: %d HEIGHT: %d", png_object.size[0], png_object.size[1])
 
 
 def lokey(cleanup_fcn=exit):
@@ -67,28 +109,21 @@ def lokey(cleanup_fcn=exit):
         cleanup_fcn(return_value)
 
     try:
-        r = png.Reader(filename=filename)
+        r = Image.open(filename)
     except FileNotFoundError:
         logging.error("%s - File not found!", filename)
         return_value = EXIT_IO_ERROR
         cleanup_fcn(return_value)
 
-    try:
-        png_object = r.read()
-    except png.FormatError:
-        logging.error("%s - Invalid PNG!", filename)
-        return_value = EXIT_IO_ERROR
-        cleanup_fcn(return_value)
+    png_object = r
 
     print_metadata(png_object)
 
     width, height, plane_count = get_dimensions(png_object)
     out_image = transform_image(r, width, height, plane_count)
 
-    f = open(output, 'wb')
-    w = png.Writer(width, height)
-    w.write(f, numpy.reshape(out_image, (-1, width*plane_count)))
-    f.close()
+    logging.info("Writing output file...")
+    scipy.misc.imsave(output, out_image)
 
     cleanup_fcn(return_value)
 
