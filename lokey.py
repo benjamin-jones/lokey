@@ -37,6 +37,11 @@ def transform_red(pixel):
 def transform_green(pixel):
     global messages
     item = messages.get()
+
+    # Don't allow clipping or overflow
+    if item + pixel > 255:
+        return pixel
+
     return item + pixel
 
 
@@ -52,8 +57,6 @@ def generate_mask(width, height):
 
 
 def transform_image(png_object, width, height, planes):
-
-    global messages
 
     arr = numpy.array(png_object)
     image_4d = numpy.reshape(arr, (height, width, planes))
